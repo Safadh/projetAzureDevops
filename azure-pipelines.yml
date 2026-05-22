@@ -347,8 +347,7 @@ stages:
                       cat $(System.ArtifactsDirectory)/k8s-manifests/deployment.yml | \
                         envsubst | kubectl apply -f -
 
-                      kubectl rollout status deployment/gestion-signalement \
-                        -n signalement --timeout=300s
+                      kubectl rollout status deployment/gestion-signalement -n signalement --timeout=600s --watch=true
 
                 - task: Bash@3
                   displayName: 'Smoke test'
