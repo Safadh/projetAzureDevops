@@ -55,7 +55,6 @@ stages:
             inputs:
               versionSpec: '8'
               jdkArchitectureOption: 'x64'
-              jdkSourceOption: 'PreInstalled'
 
           - task: Cache@2
             displayName: 'Cache dépendances Maven'
@@ -67,7 +66,7 @@ stages:
               path: '$(HOME)/.m2/repository'
 
           - task: Maven@3
-            displayName: 'mvn clean verify (build + tests + JaCoCo)'
+            displayName: 'mvn clean verify'
             inputs:
               mavenPomFile: 'pom.xml'
               goals: 'clean verify'
@@ -76,7 +75,6 @@ stages:
               testResultsFiles: '**/surefire-reports/TEST-*.xml'
               javaHomeOption: 'JDKVersion'
               jdkVersionOption: '1.8'
-              mavenVersionOption: 'Default'
             env:
               SPRING_DATASOURCE_URL: 'jdbc:mysql://localhost:3306/signalementDb?createDatabaseIfNotExist=true&serverTimezone=UTC'
               SPRING_DATASOURCE_USERNAME: 'admin'
@@ -84,19 +82,14 @@ stages:
               SPRING_JPA_HIBERNATE_DDL_AUTO: 'create'
 
           - task: PublishCodeCoverageResults@1
-            displayName: 'Publier couverture JaCoCo'
             inputs:
               codeCoverageTool: 'JaCoCo'
               summaryFileLocation: '**/target/site/jacoco/jacoco.xml'
-              reportDirectory: '**/target/site/jacoco'
-              failIfCoverageEmpty: false
 
           - task: PublishBuildArtifacts@1
-            displayName: 'Publier JAR'
             inputs:
               PathtoPublish: 'target/gestion-signalement.jar'
               ArtifactName: 'jar-artifact'
-              publishLocation: 'Container'
 
   - stage: CodeAnalysis
     displayName: 'Analyse de code statique'
@@ -105,21 +98,16 @@ stages:
     jobs:
 
       - job: StaticAnalysis
-        displayName: 'Checkstyle & SpotBugs'
         steps:
 
           - task: JavaToolInstaller@0
             inputs:
               versionSpec: '8'
               jdkArchitectureOption: 'x64'
-              jdkSourceOption: 'PreInstalled'
 
           - task: Cache@2
             inputs:
               key: 'maven | "$(Agent.OS)" | **/pom.xml'
-              restoreKeys: |
-                maven | "$(Agent.OS)"
-                maven
               path: '$(HOME)/.m2/repository'
 
           - task: Maven@3
@@ -127,8 +115,6 @@ stages:
             inputs:
               mavenPomFile: 'pom.xml'
               goals: 'checkstyle:checkstyle'
-              javaHomeOption: 'JDKVersion'
-              jdkVersionOption: '1.8'
 
           - task: Maven@3
             displayName: 'SpotBugs'
@@ -136,57 +122,27 @@ stages:
               mavenPomFile: 'pom.xml'
               goals: 'compile spotbugs:spotbugs'
               options: '-DskipTests'
-              javaHomeOption: 'JDKVersion'
-              jdkVersionOption: '1.8'
 
           - task: PublishBuildArtifacts@1
-            displayName: 'Publier rapports SpotBugs'
             inputs:
               PathtoPublish: 'target/spotbugs'
               ArtifactName: 'spotbugs-report'
 
       # ============================
-      # SONARQUBE JOB DISABLED
+      # SONARQUBE DISABLED
       # ============================
       # - job: SonarQube
       #   displayName: 'Analyse SonarQube (DISABLED)'
-      #   variables:
-      #     - group: sonar-config
       #   steps:
       #     - task: JavaToolInstaller@0
-      #       displayName: 'Installer JDK 17 (requis par sonar-maven-plugin)'
       #       inputs:
       #         versionSpec: '17'
       #         jdkArchitectureOption: 'x64'
-      #         jdkSourceOption: 'PreInstalled'
-      #
-      #     - task: Cache@2
-      #       inputs:
-      #         key: 'maven | "$(Agent.OS)" | **/pom.xml'
-      #         restoreKeys: |
-      #           maven | "$(Agent.OS)"
-      #           maven
-      #         path: '$(HOME)/.m2/repository'
-      #
       #     - task: Maven@3
-      #       displayName: 'Build + SonarQube analyse (Maven)'
       #       inputs:
-      #         mavenPomFile: 'pom.xml'
       #         goals: 'verify sonar:sonar'
-      #         options: >
-      #           -DskipTests
-      #           -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
-      #           -Dsonar.projectName=gestion-signalement
-      #           -Dsonar.projectVersion=$(Build.BuildNumber)
-      #           -Dsonar.host.url=$(SONAR_HOST_URL)
-      #           -Dsonar.login=$(SONAR_TOKEN)
-      #           -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-      #           -Dsonar.java.source=1.8
-      #         javaHomeOption: 'JDKVersion'
-      #         jdkVersionOption: '1.17'
 
   - stage: DockerBuild
-    displayName: 'Build & Push Image Docker'
     dependsOn: CodeAnalysis
     condition: |
       and(
@@ -206,20 +162,14 @@ stages:
           - task: JavaToolInstaller@0
             inputs:
               versionSpec: '8'
-
-          - task: Cache@2
-            inputs:
-              key: 'maven | "$(Agent.OS)" | **/pom.xml'
-              path: '$(HOME)/.m2/repository'
+              jdkArchitectureOption: 'x64'
 
           - task: Maven@3
-            displayName: 'Package JAR'
             inputs:
               goals: 'package'
               options: '-DskipTests'
 
           - task: Docker@2
-            displayName: 'Build & Push image vers Docker Hub'
             inputs:
               containerRegistry: 'DockerHubServiceConnection'
               repository: '$(DOCKERHUB_REPOSITORY)'
@@ -229,14 +179,7 @@ stages:
                 $(IMAGE_TAG)
                 latest
 
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publier manifests K8s'
-            inputs:
-              PathtoPublish: 'k8s'
-              ArtifactName: 'k8s-manifests'
-
   - stage: Deploy
-    displayName: 'Déploiement sur VM locale (k3s)'
     dependsOn: DockerBuild
     condition: |
       and(
@@ -263,7 +206,6 @@ stages:
                     artifactName: 'k8s-manifests'
 
                 - task: Bash@3
-                  displayName: 'kubectl setup'
                   inputs:
                     targetType: inline
                     script: |
@@ -271,14 +213,12 @@ stages:
                       kubectl cluster-info
 
                 - task: Bash@3
-                  displayName: 'Deploy MySQL'
                   inputs:
                     targetType: inline
                     script: |
                       kubectl apply -f mysql.yml
 
                 - task: Bash@3
-                  displayName: 'Deploy App'
                   inputs:
                     targetType: inline
                     script: |
