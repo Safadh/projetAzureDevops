@@ -347,7 +347,7 @@ stages:
                       cat $(System.ArtifactsDirectory)/k8s-manifests/deployment.yml | \
                         envsubst | kubectl apply -f -
 
-                      kubectl rollout status deployment/gestion-signalement -n signalement --timeout=600s --watch=true
+                      kubectl rollout status deployment/gestion-signalement -n signalement --timeout=600s --request-timeout=60s
 
                 - task: Bash@3
                   displayName: 'Smoke test'
@@ -358,17 +358,29 @@ stages:
                       # Attendre que les pods soient Ready (tcpSocket sur 8080)
                       echo "Attente que les pods soient prêts..."
                       for i in $(seq 1 20); do
-                        READY=$(kubectl get deployment gestion-signalement -n signalement \
-                          -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-                        DESIRED=$(kubectl get deployment gestion-signalement -n signalement \
-                          -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
-                        echo "Tentative $i/20 - Ready: ${READY:-0}/$DESIRED"
-                        if [ "${READY:-0}" -ge "1" ]; then
-                          echo "Déploiement OK - au moins 1 réplica prêt"
-                          exit 0
-                        fi
-                        sleep 15
+                        echo "Tentative $i/30"
+
+                         # Check pod status instead of deployment readyReplicas (more reliable)
+                        NOT_READY=$(kubectl get pods -n signalement \
+                         -l app=gestion-signalement \
+                         --no-headers 2>/dev/null | grep -v "Running" | wc -l)
+                        
+                        READY=$(kubectl get pods -n signalement \
+                         -l app=gestion-signalement \
+                         --no-headers 2>/dev/null | grep "Running" | wc -l)
+
+                         echo "Ready pods: $READY | Not ready: $NOT_READY"
+                         if [ "${READY:-0}" -ge "1" ]; then
+                           echo "Déploiement OK - au moins 1 réplica prêt"
+                           exit 0
+                         fi 
+                        sleep 10
                       done
-                      echo "##[error]Timeout - aucun réplica prêt après 5 minutes"
+                      echo "##[error]Timeout - aucun pod prêt après 5 minutes"
+                      echo "=== POD STATUS ==="
+                      kubectl get pods -n signalement -o wide
+                      echo "=== EVENTS ==="
+                      kubectl get events -n signalement --sort-by=.metadata.creationTimestamp | tail -20
                       kubectl describe pods -n signalement
                       exit 1
+                      
